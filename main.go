@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 	"z/openai"
 	"z/telegram"
@@ -51,6 +52,12 @@ func runTelegramBot() {
 				continue
 			}
 
+			text := update.Message.TextValue()
+			if strings.HasPrefix(text, "/") {
+				log.Println("        Unsupport command: ", text)
+				continue
+			}
+
 			replyMessage, err := tgBot.SendMessage(update.Message.Chat.Id, "...")
 			if err != nil {
 				log.Println("        Fail to reply message:", err)
@@ -61,7 +68,7 @@ func runTelegramBot() {
 
 			var replyText string
 			lastReplyAt := time.Now()
-			err = askAi(update.Message.TextValue(), func(text string) {
+			err = askAi(text, func(text string) {
 				replyText += text
 
 				//Buffered AI response to decrease the Telegram Bot API calls
