@@ -55,6 +55,14 @@ func runTelegramBot() {
 				continue
 			}
 
+			if update.Message.Chat.Type != "private" {
+				_, err := tgBot.SendMessage(update.Message.Chat.Id, "Only private chat be supported.")
+				if err != nil {
+					log.Println("        Fail to reply message:", err)
+				}
+				continue
+			}
+
 			text := update.Message.TextValue()
 			if strings.HasPrefix(text, "/") {
 				log.Println("        Unsupport command: ", text)
