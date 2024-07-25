@@ -5,24 +5,31 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 	"z/openai"
 	"z/telegram"
 )
 
-var flagBotToken string
-var flagOpenAiKey string
-var flagAiModel string
+var (
+	flagBotToken    string
+	flagOpenAiKey   string
+	flagAiModel     string
+	flagAdminUserId int64
+)
 
 func init() {
 	flag.StringVar(&flagBotToken, "t", "", "Telegram bot token")
 	flag.StringVar(&flagOpenAiKey, "k", "", "OpenAI key")
 	flag.StringVar(&flagAiModel, "m", "gpt-4o-mini", "AI model")
+	flag.Int64Var(&flagAdminUserId, "a", 0, "Telegram admin user id")
 	flag.Parse()
 }
 
 func main() {
+	if flagAdminUserId == 0 {
+		log.Fatal("Admin user id is required.")
+	}
+
 	log.Println("Starting bot...")
 	runTelegramBot()
 }
@@ -64,12 +71,15 @@ func runTelegramBot() {
 			}
 
 			text := update.Message.TextValue()
-			if strings.HasPrefix(text, "/") {
-				log.Println("        Unsupport command: ", text)
+			if update.Message.Chat.Id != flagAdminUserId {
+				_, err := tgBot.SendMessage(update.Message.Chat.Id, fmt.Sprintf("Sorry, you (%d) are not allowed to chat with me.", update.Message.Chat.Id))
+				if err != nil {
+					log.Println("        Fail to reply message:", err)
+				}
 				continue
 			}
 
-			replyMessage, err := tgBot.SendMessage(update.Message.Chat.Id, "...")
+			replyMessage, err := tgBot.SendMessage(update.Message.Chat.Id, "Connecting  AI ...")
 			if err != nil {
 				log.Println("        Fail to reply message:", err)
 				continue
@@ -79,11 +89,11 @@ func runTelegramBot() {
 
 			var replyText string
 			lastReplyAt := time.Now()
-			err = askAi(text, func(text string) {
+			tokenCount, err := askAi(text, func(text string) {
 				replyText += text
 
 				//Buffered AI response to decrease the Telegram Bot API calls
-				if time.Since(lastReplyAt) > time.Second {
+				if time.Since(lastReplyAt) > time.Millisecond*500 {
 					lastReplyAt = time.Now()
 					_, err := tgBot.EditMessageText(*replyMessage, replyText)
 					if err != nil {
@@ -95,6 +105,7 @@ func runTelegramBot() {
 				log.Println("        Error AI response:", err)
 			}
 
+			replyText += fmt.Sprintf("\n\nToken consume: %d", tokenCount)
 			_, err = tgBot.EditMessageText(*replyMessage, replyText)
 			if err != nil {
 				log.Println("        Fail to reply message:", err)
@@ -103,12 +114,17 @@ func runTelegramBot() {
 	}
 }
 
-func askAi(question string, streamCallback func(string)) error {
+func askAi(question string, streamCallback func(string)) (int, error) {
 	oaiCli := openai.New(flagOpenAiKey)
 	oaiMessages := []openai.Message{
 		openai.NewUserMessage(question),
 	}
+	var tokenCount int
 	err := oaiCli.ChatCompletionsSteam(flagAiModel, oaiMessages, func(resp openai.ChatCompletionsResp) error {
+		if resp.Usage != nil {
+			tokenCount = resp.Usage.TotalTokens
+			return nil
+		}
 		if len(resp.Choices) != 1 {
 			return fmt.Errorf("Invalid AI response: %+v", resp)
 		}
@@ -121,5 +137,5 @@ func askAi(question string, streamCallback func(string)) error {
 		return nil
 	})
 
-	return err
+	return tokenCount, err
 }

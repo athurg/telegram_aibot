@@ -10,8 +10,11 @@ import (
 )
 
 type ChatCompletionsParam struct {
-	Model    string    `json:"model"`
-	Stream   bool      `json:"stream"`
+	Model         string `json:"model"`
+	Stream        bool   `json:"stream"`
+	StreamOptions struct {
+		IncludeUsage bool `json:"include_usage"`
+	} `json:"stream_options"`
 	Messages []Message `json:"messages"`
 }
 
@@ -21,7 +24,7 @@ type ChatCompletionsResp struct {
 	Created          int
 	Model            string
 	SystemFigerprint string `json:"system_fingerprint"`
-	Usage            struct {
+	Usage            *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
@@ -44,6 +47,7 @@ func (c *Client) ChatCompletionsSteam(model string, messages []Message, callback
 		Messages: messages,
 		Stream:   true,
 	}
+	param.StreamOptions.IncludeUsage = true
 
 	paramsBytes, err := json.Marshal(param)
 	if err != nil {
