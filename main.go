@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -46,7 +47,9 @@ func runTelegramBot() {
 		for i, update := range updates {
 			updateOffset = update.UpdateId + 1
 
-			log.Printf("[%4d/%4d]Update: %+v", i+1, len(updates), update)
+			updateBytes, _ := json.Marshal(update)
+			log.Printf("[%4d/%4d]Update: %s", i+1, len(updates), string(updateBytes))
+
 			if update.Message == nil || update.Message.Chat == nil || update.Message.Text == nil {
 				log.Println("        Unsupport update")
 				continue
