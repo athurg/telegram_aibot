@@ -2,21 +2,30 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"time"
+	"z/openai"
 	"z/telegram"
 )
 
 var flagBotToken string
+var flagOpenAiKey string
+var flagAiModel string
 
 func init() {
 	flag.StringVar(&flagBotToken, "t", "", "Telegram bot token")
+	flag.StringVar(&flagOpenAiKey, "k", "", "OpenAI key")
+	flag.StringVar(&flagAiModel, "m", "gpt-4o-mini", "AI model")
 	flag.Parse()
 }
 
 func main() {
 	log.Println("Starting bot...")
+	runTelegramBot()
+}
 
+func runTelegramBot() {
 	tgBot := telegram.NewBot(flagBotToken)
 	botInfo, err := tgBot.GetMe()
 	if err != nil {
@@ -37,38 +46,62 @@ func main() {
 			updateOffset = update.UpdateId + 1
 
 			log.Printf("[%4d/%4d]Update: %+v", i+1, len(updates), update)
-			if update.Message == nil {
-				log.Println("        No message")
+			if update.Message == nil || update.Message.Chat == nil || update.Message.Text == nil {
+				log.Println("        Unsupport update")
 				continue
 			}
 
-			if update.Message.Chat == nil {
-				log.Println("        No chat")
-				continue
-			}
-
-			if update.Message.Text == nil {
-				log.Println("        No text")
-				continue
-			}
-
-			log.Printf("        [TEXT]: %s", update.Message.TextValue())
-
-			replyMessage, err := tgBot.SendMessage(update.Message.Chat.Id, update.Message.TextValue())
+			replyMessage, err := tgBot.SendMessage(update.Message.Chat.Id, "...")
 			if err != nil {
-				log.Println("        Error reply message:", err)
+				log.Println("        Fail to reply message:", err)
 				continue
 			}
 
 			log.Printf("        Reply message: %+v", replyMessage)
 
-			time.Sleep(1 * time.Second)
-			editedMessage, err := tgBot.EditMessageText(*replyMessage, update.Message.TextValue()+"(Edited)")
+			var replyText string
+			lastReplyAt := time.Now()
+			err = askAi(update.Message.TextValue(), func(text string) {
+				replyText += text
+
+				//Buffered AI response to decrease the Telegram Bot API calls
+				if time.Since(lastReplyAt) > time.Second {
+					lastReplyAt = time.Now()
+					_, err := tgBot.EditMessageText(*replyMessage, replyText)
+					if err != nil {
+						log.Println("        Fail to reply message:", err)
+					}
+				}
+			})
 			if err != nil {
-				log.Println("        Error edit message:", err)
-				continue
+				log.Println("        Error AI response:", err)
 			}
-			log.Printf("        Edited message: %+v", editedMessage)
+
+			_, err = tgBot.EditMessageText(*replyMessage, replyText)
+			if err != nil {
+				log.Println("        Fail to reply message:", err)
+			}
 		}
 	}
+}
+
+func askAi(question string, streamCallback func(string)) error {
+	oaiCli := openai.New(flagOpenAiKey)
+	oaiMessages := []openai.Message{
+		openai.NewUserMessage(question),
+	}
+	err := oaiCli.ChatCompletionsSteam(flagAiModel, oaiMessages, func(resp openai.ChatCompletionsResp) error {
+		if len(resp.Choices) != 1 {
+			return fmt.Errorf("Invalid AI response: %+v", resp)
+		}
+
+		if resp.Choices[0].Delta.Content == "" {
+			return nil
+		}
+
+		streamCallback(resp.Choices[0].Delta.Content)
+		return nil
+	})
+
+	return err
 }
